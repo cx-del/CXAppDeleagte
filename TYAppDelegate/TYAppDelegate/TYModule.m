@@ -7,56 +7,54 @@
 //
 
 #import "TYModule.h"
+#import <stdarg.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
-
-typedef void (* _void_IMP)(id,...);
-typedef BOOL (* _IMP)(id,...);
 
 #define ADD_SELECTOR_PREFIX(__SELECTOR__) @selector(TY_##__SELECTOR__)
 
 #define SWIZZLE_DELEGATE_METHOD(__SELECTORSTRING__) \
 Swizzle([delegate class], @selector(__SELECTORSTRING__), class_getClassMethod([TYModule class], ADD_SELECTOR_PREFIX(__SELECTORSTRING__))); \
 
-#define TY_APPDELEGATE_CALL_ORTHER(application,...) \
+#define TY_APPDELEGATE_CALL_ORTHER( _cmd_, _application_, _args1_, _args2_, _args3_) \
 for (id obj in TYModuleObjects) { \
-    if ([obj respondsToSelector:_cmd]) { \
-        Method m1 = class_getInstanceMethod([obj class], _cmd); \
-        IMP method1 = method_getImplementation(m1); \
-        _void_IMP callMethod1 = (_void_IMP)method1; \
-        callMethod1(obj,_cmd,application,##__VA_ARGS__); \
+    if ([obj respondsToSelector:_cmd_]) { \
+        ((void (*)(id, SEL, id , id , id , id))(void *)objc_msgSend)(obj,_cmd_,_application_,_args1_,_args2_,_args3_); \
     } \
 } \
 for (Class cla in TYModuleClass) { \
-    if ([cla respondsToSelector:_cmd]) { \
-        Method m2 = class_getClassMethod([cla class], _cmd); \
-        IMP method2 = method_getImplementation(m2); \
-        _void_IMP callMethod2 = (_void_IMP)method2; \
-        callMethod2(cla,_cmd,application,##__VA_ARGS__); \
+    if ([cla respondsToSelector:_cmd_]) { \
+        ((void (*)(id, SEL, id , id , id , id))(void *)objc_msgSend)(cla,_cmd_,_application_,_args1_,_args2_,_args3_); \
     } \
 } \
 
-#define TY_APPDELEGATE_METHOD(application,...) \
-SEL ty_selector = NSSelectorFromString([NSString stringWithFormat:@"TY_%@", NSStringFromSelector(_cmd)]); \
-Method m = class_getClassMethod([TYModule class], ty_selector); \
-IMP method = method_getImplementation(m); \
-if (!sel_isEqual(ty_selector, _cmd)) { \
-    _void_IMP callMethod = (_void_IMP)method; \
-    callMethod(self,ty_selector,application, ##__VA_ARGS__); \
-} \
-TY_APPDELEGATE_CALL_ORTHER(application, ##__VA_ARGS__) \
+static NSMutableSet<id> * TYModuleObjects;
+static NSMutableSet<Class> * TYModuleClass;
 
-#define TY_APPDELEGATE_METHOD_RETURN(application,...) \
-BOOL returnValue = NO; \
-SEL ty_selector = NSSelectorFromString([NSString stringWithFormat:@"TY_%@", NSStringFromSelector(_cmd)]); \
-Method m = class_getClassMethod([TYModule class], ty_selector); \
-IMP method = method_getImplementation(m); \
-if (!sel_isEqual(ty_selector, _cmd)) { \
-    _IMP callMethod = (_IMP)method; \
-    returnValue = callMethod(self,ty_selector,application, ##__VA_ARGS__); \
-} \
-TY_APPDELEGATE_CALL_ORTHER(application, ##__VA_ARGS__) \
-return returnValue; \
+BOOL TY_Appdelegate_method_return(id _self_, SEL _cmd_, id _application_, id _args1_, id _args2_, id _args3_) {
+    BOOL returnValue = NO;
+    SEL ty_selector = NSSelectorFromString([NSString stringWithFormat:@"TY_%@", NSStringFromSelector(_cmd_)]);
+    Method m = class_getClassMethod([TYModule class], ty_selector);
+    IMP method = method_getImplementation(m);
+    if (![NSStringFromSelector(_cmd_) hasPrefix:@"TY_"]) {
+        BOOL (* callMethod)(id,SEL,id,id,id,id) = (void *)method;
+        returnValue = callMethod(_self_,ty_selector,_application_,_args1_,_args2_,_args3_);
+    }
+    TY_APPDELEGATE_CALL_ORTHER(_cmd_, _application_, _args1_, _args2_, _args3_)
+    return returnValue;
+}
+
+void TY_Appdelegate_method(id _self_, SEL _cmd_, id _application_, id _args1_, id _args2_) {
+    SEL ty_selector = NSSelectorFromString([NSString stringWithFormat:@"TY_%@", NSStringFromSelector(_cmd_)]);
+    Method m = class_getClassMethod([TYModule class], ty_selector);
+    IMP method = method_getImplementation(m);
+    if (![NSStringFromSelector(_cmd_) hasPrefix:@"TY_"]) {
+        void (* callMethod)(id,SEL,id,id,id) = (void *)method;
+        callMethod(_self_,ty_selector,_application_,_args1_,_args2_);
+    }
+    TY_APPDELEGATE_CALL_ORTHER(_cmd_, _application_, _args1_, _args2_, nil)
+}
+
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
@@ -85,10 +83,6 @@ void Swizzle(Class class, SEL originalSelector, Method swizzledMethod)
     }
 }
 
-
-static NSMutableSet<id> * TYModuleObjects;
-static NSMutableSet<Class> * TYModuleClass;
-
 @implementation UIApplication (DCX)
 
 - (void)TY_setDelegate:(id <UIApplicationDelegate>)delegate {
@@ -101,7 +95,7 @@ static NSMutableSet<Class> * TYModuleClass;
         SWIZZLE_DELEGATE_METHOD(applicationDidBecomeActive:)
         SWIZZLE_DELEGATE_METHOD(applicationWillResignActive:)
         SWIZZLE_DELEGATE_METHOD(application: handleOpenURL:)
-        SWIZZLE_DELEGATE_METHOD(application: openURL:sourceApplication:annotation:)
+        SWIZZLE_DELEGATE_METHOD(application: openURL:  sourceApplication: annotation:)
         SWIZZLE_DELEGATE_METHOD(application: openURL: options:)
         SWIZZLE_DELEGATE_METHOD(applicationDidReceiveMemoryWarning:)
         SWIZZLE_DELEGATE_METHOD(applicationWillTerminate:)
@@ -148,102 +142,103 @@ static NSMutableSet<Class> * TYModuleClass;
 }
 
 + (void)TY_applicationDidFinishLaunching:(UIApplication *)application {
-    TY_APPDELEGATE_METHOD(application)
+    TY_Appdelegate_method(self, _cmd, application, nil, nil);
 }
 
 + (void)TY_applicationDidEnterBackground:(UIApplication *)application {
-    TY_APPDELEGATE_METHOD(application)
+    TY_Appdelegate_method(self, _cmd, application, nil, nil);
 }
 
 + (void)TY_applicationWillEnterForeground:(UIApplication *)application {
-    TY_APPDELEGATE_METHOD(application)
+    TY_Appdelegate_method(self, _cmd, application, nil, nil);
 }
 
 #if UIKIT_STRING_ENUMS
 + (BOOL)TY_application:(UIApplication *)application willFinishLaunchingWithOptions:(nullable NSDictionary<UIApplicationLaunchOptionsKey, id> *)launchOptions {
-    TY_APPDELEGATE_METHOD_RETURN(application,launchOptions)
+    return TY_Appdelegate_method_return(self,_cmd,application, launchOptions,nil,nil);
 }
 
 + (BOOL)TY_application:(UIApplication *)application didFinishLaunchingWithOptions:(nullable NSDictionary<UIApplicationLaunchOptionsKey, id> *)launchOptions  {
-    TY_APPDELEGATE_METHOD_RETURN(application,launchOptions)
+    return TY_Appdelegate_method_return(self,_cmd,application, launchOptions,nil,nil);
 }
 
 #else
+
 + (BOOL)TY_application:(UIApplication *)application willFinishLaunchingWithOptions:(nullable NSDictionary *)launchOptions {
-    TY_APPDELEGATE_METHOD_RETURN(application,launchOptions)
+    return TY_Appdelegate_method_return(self,_cmd,application, launchOptions,nil,nil);
 }
 
 + (BOOL)TY_application:(UIApplication *)application didFinishLaunchingWithOptions:(nullable NSDictionary *)launchOptions {
-    TY_APPDELEGATE_METHOD_RETURN(application,launchOptions)
+    return TY_Appdelegate_method_return(self,_cmd,application, launchOptions,nil,nil);
 }
 #endif
 
 + (void)TY_applicationDidBecomeActive:(UIApplication *)application {
-    TY_APPDELEGATE_METHOD(application)
+    TY_Appdelegate_method(self, _cmd, application, nil, nil);
 }
 
 + (void)TY_applicationWillResignActive:(UIApplication *)application {
-    TY_APPDELEGATE_METHOD(application)
+    TY_Appdelegate_method(self, _cmd, application, nil, nil);
 }
 
 + (BOOL)TY_application:(UIApplication *)application handleOpenURL:(NSURL *)url {
-    TY_APPDELEGATE_METHOD_RETURN(application,url)
+    return TY_Appdelegate_method_return(self,_cmd,application,url,nil,nil);
 }
 
 + (BOOL)TY_application:(UIApplication *)application openURL:(NSURL *)url sourceApplication:(nullable NSString *)sourceApplication annotation:(id)annotation  {
-    TY_APPDELEGATE_METHOD_RETURN(application,url,sourceApplication,annotation)
+    return TY_Appdelegate_method_return(self,_cmd,application,url,sourceApplication,annotation);
 }
 
-+ (BOOL)TY_application:(UIApplication *)app openURL:(NSURL *)url options:(NSDictionary<UIApplicationOpenURLOptionsKey, id> *)options {
-    TY_APPDELEGATE_METHOD_RETURN(app,url,options)
++ (BOOL)TY_application:(UIApplication *)application openURL:(NSURL *)url options:(NSDictionary<UIApplicationOpenURLOptionsKey, id> *)options {
+    return TY_Appdelegate_method_return(self,_cmd,application,url,options,nil);
 }
 
 + (void)TY_applicationDidReceiveMemoryWarning:(UIApplication *)application {
-    TY_APPDELEGATE_METHOD(application)
+    TY_Appdelegate_method(self, _cmd, application, nil, nil);
 }
 
 + (void)TY_applicationWillTerminate:(UIApplication *)application {
-    TY_APPDELEGATE_METHOD(application)
+    TY_Appdelegate_method(self, _cmd, application, nil, nil);
 }
 
 + (void)TY_applicationSignificantTimeChange:(UIApplication *)application {
-    TY_APPDELEGATE_METHOD(application)
+    TY_Appdelegate_method(self, _cmd, application, nil, nil);
 }
 
 + (void)TY_application:(UIApplication *)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken {
-    TY_APPDELEGATE_METHOD(application,deviceToken)
+    TY_Appdelegate_method(self, _cmd, application, deviceToken, nil);
 }
 
 + (void)TY_application:(UIApplication *)application didFailToRegisterForRemoteNotificationsWithError:(NSError *)error {
-    TY_APPDELEGATE_METHOD(application,error)
+    TY_Appdelegate_method(self, _cmd, application, error, nil);
 }
 
 + (void)TY_application:(UIApplication *)application didReceiveRemoteNotification:(NSDictionary *)userInfo {
-    TY_APPDELEGATE_METHOD(application,userInfo)
+    TY_Appdelegate_method(self, _cmd, application, userInfo, nil);
 }
 
 + (void)TY_application:(UIApplication *)application didReceiveRemoteNotification:(NSDictionary *)userInfo fetchCompletionHandler:(void (^)(UIBackgroundFetchResult result))completionHandler {
-    TY_APPDELEGATE_METHOD(application,userInfo,completionHandler)
+    TY_Appdelegate_method(self, _cmd, application, userInfo, completionHandler);
 }
 
 + (void)TY_application:(UIApplication *)application handleEventsForBackgroundURLSession:(NSString *)identifier completionHandler:(void (^)())completionHandler {
-    TY_APPDELEGATE_METHOD(application,identifier,completionHandler)
+    TY_Appdelegate_method(self, _cmd, application, identifier, completionHandler);
 }
 
 + (void)TY_application:(UIApplication *)application handleWatchKitExtensionRequest:(nullable NSDictionary *)userInfo reply:(void(^)(NSDictionary * __nullable replyInfo))reply {
-    TY_APPDELEGATE_METHOD(application,userInfo,reply)
+    TY_Appdelegate_method(self, _cmd, application, userInfo, reply);
 }
 
 + (void)TY_applicationShouldRequestHealthAuthorization:(UIApplication *)application {
-    TY_APPDELEGATE_METHOD(application)
+    TY_Appdelegate_method(self, _cmd, application, nil, nil);
 }
 
 + (void)TY_applicationProtectedDataWillBecomeUnavailable:(UIApplication *)application {
-    TY_APPDELEGATE_METHOD(application)
+    TY_Appdelegate_method(self, _cmd, application, nil, nil);
 }
 
 + (void)TY_applicationProtectedDataDidBecomeAvailable:(UIApplication *)application {
-    TY_APPDELEGATE_METHOD(application)
+    TY_Appdelegate_method(self, _cmd, application, nil, nil);
 }
 
 @end
