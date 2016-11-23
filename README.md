@@ -1,5 +1,5 @@
 # CXAppDeleagte
-无代码入侵，获取AppDelegate声明周期
+无代码入侵，利用 runtime 获取AppDelegate声明周期
 
 
 ```
